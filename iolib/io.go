@@ -80,3 +80,41 @@ func FileLines(filePath string) (iter.Seq[string], error) {
 		}
 	}, nil
 }
+
+// CsvWriter writes CSV records to an output file.
+// Use NewCsvWriter to create new instances and Close to close the underlying file.
+type CsvWriter struct {
+	csvFile   *os.File
+	csvWriter *csv.Writer
+}
+
+// Error returns the current error
+func (w *CsvWriter) Error() error {
+	return w.csvWriter.Error()
+}
+
+// Flush writes unbuffered data to disk.
+func (w *CsvWriter) Flush() {
+	w.csvWriter.Flush()
+}
+
+// Write writes a csvRecord to the underlying output file.
+func (w *CsvWriter) Write(csvRecord []string) error {
+	return w.csvWriter.Write(csvRecord)
+}
+
+// Close closes the underlying CsvWriter file.
+func (w *CsvWriter) Close() error {
+	return w.csvFile.Close()
+}
+
+// NewCsvWriter creates a new CsvWriter instance.
+func NewCsvWriter(filePath string) (CsvWriter, error) {
+	f, err := os.Create(filePath)
+	if err != nil {
+		return CsvWriter{}, fmt.Errorf("could not open file: %w", err)
+	}
+
+	writer := CsvWriter{csvFile: f, csvWriter: csv.NewWriter(f)}
+	return writer, nil
+}

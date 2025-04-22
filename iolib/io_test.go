@@ -147,3 +147,24 @@ func TestFileLines_OneLine(t *testing.T) {
 		t.Errorf("Sample File Diffs: %s", diff)
 	}
 }
+
+func TestCsvWriter(t *testing.T) {
+	// configure writer for testing
+	testCsvPath := path.Join(t.TempDir(), "test.csv")
+
+	writer, err := NewCsvWriter(testCsvPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer writer.Close()
+
+	// csv contents
+	csvData := [][]string{{"first_name", "last_name"}, {"John", "Doe"}}
+	for _, row := range csvData {
+		err := writer.Write(row)
+		if err != nil {
+			t.Fatalf("unexpected error writing record: %v", err)
+		}
+	}
+	writer.Flush()
+}
