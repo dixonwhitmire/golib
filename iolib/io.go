@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"github.com/dixonwhitmire/golib/errorlib"
 	"io"
 	"iter"
 	"os"
@@ -23,7 +24,7 @@ func ReadFileContent[T FileContent](filePath string) (T, error) {
 	fileBytes, err := os.ReadFile(filePath)
 
 	if err != nil {
-		return zero, fmt.Errorf("could not read file: %w", err)
+		return zero, errorlib.WrapError("ReadFileContent", fmt.Sprintf("could not read file:%s", filePath), err)
 	}
 
 	var contentType T
@@ -34,15 +35,15 @@ func ReadFileContent[T FileContent](filePath string) (T, error) {
 	case []byte:
 		return any(fileBytes).(T), nil
 	default:
-		return zero, fmt.Errorf("unknown content type: %T", any(fileBytes))
+		return zero, errorlib.WrapError("ReadFileContent", fmt.Sprintf("unknown content type:%T", any(fileBytes)), err)
 	}
 }
 
-// CsvRecord returns a Seq2 iterator which includes the csvRecord and any error encountered during the read operation.
-func CsvRecord(filePath string) (iter.Seq2[[]string, error], error) {
-	csvFile, err := os.Open(filePath)
+// CsvRecordIterator returns a Seq2 iterator which includes the csvRecord and any errorlib encountered during the read operation.
+func CsvRecordIterator(csvFilePath string) (iter.Seq2[[]string, error], error) {
+	csvFile, err := os.Open(csvFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("could not open file: %w", err)
+		return nil, errorlib.WrapError("CsvRecordIterator", fmt.Sprintf("could not open file:%s", csvFilePath), err)
 	}
 
 	reader := csv.NewReader(csvFile)
@@ -62,11 +63,11 @@ func CsvRecord(filePath string) (iter.Seq2[[]string, error], error) {
 	}, nil
 }
 
-// FileLines returns a Seq containing a single file line.
-func FileLines(filePath string) (iter.Seq[string], error) {
-	file, err := os.Open(filePath)
+// FileLinesIterator returns a Seq containing a single file line.
+func FileLinesIterator(csvFilePath string) (iter.Seq[string], error) {
+	file, err := os.Open(csvFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("could not open file: %w", err)
+		return nil, errorlib.WrapError("FileLinesIterator", fmt.Sprintf("could not open file:%s", csvFilePath), err)
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -88,7 +89,7 @@ type CsvWriter struct {
 	csvWriter *csv.Writer
 }
 
-// Error returns the current error
+// Error returns the current errorlib
 func (w *CsvWriter) Error() error {
 	return w.csvWriter.Error()
 }
@@ -109,12 +110,107 @@ func (w *CsvWriter) Close() error {
 }
 
 // NewCsvWriter creates a new CsvWriter instance.
-func NewCsvWriter(filePath string) (CsvWriter, error) {
-	f, err := os.Create(filePath)
+func NewCsvWriter(csvFilePath string) (CsvWriter, error) {
+	f, err := os.Create(csvFilePath)
 	if err != nil {
-		return CsvWriter{}, fmt.Errorf("could not open file: %w", err)
+		return CsvWriter{}, errorlib.WrapError("NewCsvWriter", fmt.Sprintf("could not open file:%s", csvFilePath), err)
 	}
 
 	writer := CsvWriter{csvFile: f, csvWriter: csv.NewWriter(f)}
 	return writer, nil
+}
+
+// parseCsvMetaData returns the header record (if present) for a csv file and a column count.
+func parseCsvMetaData(csvFilePath string, hasHeader bool) ([]string, int, error) {
+	var headerRecord []string
+	columnCount := 0
+
+	csvRecords, err := CsvRecordIterator(csvFilePath)
+	if err != nil {
+		return headerRecord, columnCount, errorlib.WrapError("parseCsvMetadata", "error creating CsvRecordIterator iterator", err)
+	}
+
+	for csvRecord, err := range csvRecords {
+		if err != nil {
+			return headerRecord, columnCount, errorlib.WrapError("parseCsvMetadata", "error parsing csv metadata", err)
+		}
+		if hasHeader {
+			headerRecord = csvRecord
+		}
+		columnCount = len(csvRecord)
+		break
+	}
+	if columnCount == 0 {
+		return headerRecord, columnCount, fmt.Errorf("parseCsvMetaData: invalid csv file:%s column count == 0", csvFilePath)
+	}
+	return headerRecord, columnCount, nil
+}
+
+// MergeCsvFiles merges the provided inputFiles into a single file located at outputCsvPath.
+// The first file in inputFiles establishes the merge file's structure and header row if hasHeader is true
+func MergeCsvFiles(outputCsvPath string, hasHeader bool, inputCsvFiles ...string) error {
+	if inputCsvFiles == nil || len(inputCsvFiles) == 0 {
+		return errors.New("MergeCsvFiles:unable to merge csv: inputCsvFiles is nil or empty")
+	}
+
+	// grab the first file for the header (if any) and column count
+	headerRecord, columnCount, err := parseCsvMetaData(inputCsvFiles[0], hasHeader)
+	if err != nil {
+		return errorlib.WrapError("MergeCsvFiles", "error parsing metadata", err)
+	}
+
+	// prepare the output file
+	writer, err := NewCsvWriter(outputCsvPath)
+	if err != nil {
+		return errorlib.WrapError("MergeCsvFiles", "error creating CsvWriter", err)
+	}
+	// cleanup
+	defer func() {
+		writer.Flush()
+		writer.Close()
+	}()
+
+	if hasHeader {
+		err := writer.Write(headerRecord)
+		if err != nil {
+			return errorlib.WrapError("MergeCsvFiles", "error writing header", err)
+		}
+		writer.Flush()
+	}
+
+	// process each file
+	for _, csvFilePath := range inputCsvFiles {
+		lineCounter := 0
+
+		// create our iterator
+		csvRecords, err := CsvRecordIterator(csvFilePath)
+		if err != nil {
+			return errorlib.WrapError("MergeCsvFiles", "error creating CsvRecordIterator iterator", err)
+		}
+
+		for csvRecord, err := range csvRecords {
+			lineCounter++
+			if err != nil {
+				return errorlib.WrapError("MergeCsvFiles", "error reading csv record", err)
+			}
+
+			// first line is used to compare column counts and if a header row, skip
+			if lineCounter == 1 {
+				if len(csvRecord) != columnCount {
+					return fmt.Errorf("MergeCsvFiles: invalid csv column count. expected=%d, actual=%d file=%s",
+						columnCount, len(csvRecord), csvFilePath)
+				}
+				if hasHeader {
+					continue
+				}
+			}
+			err := writer.Write(csvRecord)
+			if err != nil {
+				return errorlib.WrapError(
+					"MergeCsvFiles", fmt.Sprintf("error writing csv record line:%d", lineCounter), err)
+			}
+			writer.Flush()
+		}
+	}
+	return nil
 }
