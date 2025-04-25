@@ -39,8 +39,14 @@ func ReadFileContent[T FileContent](filePath string) (T, error) {
 	}
 }
 
+// CsvRecord encapsulates a csv record including the record's line number and associated data.
+type CsvRecord struct {
+	LineNumber int
+	Data       []string
+}
+
 // CsvRecordIterator returns a Seq2 iterator which includes the csvRecord and any errorlib encountered during the read operation.
-func CsvRecordIterator(csvFilePath string) (iter.Seq2[[]string, error], error) {
+func CsvRecordIterator(csvFilePath string) (iter.Seq2[CsvRecord, error], error) {
 	csvFile, err := os.Open(csvFilePath)
 	if err != nil {
 		return nil, errorlib.WrapError("CsvRecordIterator", fmt.Sprintf("could not open file:%s", csvFilePath), err)
@@ -48,14 +54,17 @@ func CsvRecordIterator(csvFilePath string) (iter.Seq2[[]string, error], error) {
 
 	reader := csv.NewReader(csvFile)
 
-	return func(yield func([]string, error) bool) {
+	return func(yield func(CsvRecord, error) bool) {
 		defer csvFile.Close()
 
+		lineCounter := 0
 		for {
-			csvRecord, err := reader.Read()
+			lineCounter++
+			csvData, err := reader.Read()
 			if errors.Is(err, io.EOF) {
 				break
 			}
+			csvRecord := CsvRecord{lineCounter, csvData}
 			if !yield(csvRecord, err) {
 				break
 			}
@@ -135,9 +144,9 @@ func parseCsvMetaData(csvFilePath string, hasHeader bool) ([]string, int, error)
 			return headerRecord, columnCount, errorlib.WrapError("parseCsvMetadata", "error parsing csv metadata", err)
 		}
 		if hasHeader {
-			headerRecord = csvRecord
+			headerRecord = csvRecord.Data
 		}
-		columnCount = len(csvRecord)
+		columnCount = len(csvRecord.Data)
 		break
 	}
 	if columnCount == 0 {
@@ -196,15 +205,15 @@ func MergeCsvFiles(outputCsvPath string, hasHeader bool, inputCsvFiles ...string
 
 			// first line is used to compare column counts and if a header row, skip
 			if lineCounter == 1 {
-				if len(csvRecord) != columnCount {
+				if len(csvRecord.Data) != columnCount {
 					return fmt.Errorf("MergeCsvFiles: invalid csv column count. expected=%d, actual=%d file=%s",
-						columnCount, len(csvRecord), csvFilePath)
+						columnCount, len(csvRecord.Data), csvFilePath)
 				}
 				if hasHeader {
 					continue
 				}
 			}
-			err := writer.Write(csvRecord)
+			err := writer.Write(csvRecord.Data)
 			if err != nil {
 				return errorlib.WrapError(
 					"MergeCsvFiles", fmt.Sprintf("error writing csv record line:%d", lineCounter), err)

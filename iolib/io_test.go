@@ -80,7 +80,7 @@ func TestCsvRecordIterator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected errorlib: %v", err)
 		}
-		got = append(got, csvRecord)
+		got = append(got, csvRecord.Data)
 	}
 
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -103,7 +103,7 @@ func TestCsvRecordIterator_ReadHeader(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected errorlib: %v", err)
 		}
-		got = append(got, csvRecord)
+		got = append(got, csvRecord.Data)
 		break
 	}
 
@@ -195,15 +195,15 @@ func TestMergeCsvFiles(t *testing.T) {
 		t.Fatalf("unexpected errir: %v", err)
 	}
 
-	lineCounter := 0
-	for _, err := range csvRecords {
+	var lineCount int
+	for csvRecord, err := range csvRecords {
 		if err != nil {
 			t.Fatalf("unexpected err: %v", err)
 		}
-		lineCounter++
+		lineCount = csvRecord.LineNumber
 	}
 
-	if lineCounter != expectedLineCount {
-		t.Errorf("merged file invalid: expected %d lines, got %d lines", expectedLineCount, lineCounter)
+	if lineCount != expectedLineCount {
+		t.Errorf("merged file invalid: expected %d lines, got %d lines", expectedLineCount, lineCount)
 	}
 }
