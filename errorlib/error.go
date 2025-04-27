@@ -7,3 +7,9 @@ import "fmt"
 func WrapError(functionMethodName, message string, err error) error {
 	return fmt.Errorf("%s:%s errorlib:%w", functionMethodName, message, err)
 }
+
+// CreateError returns an error formatted as:
+// [functionMethodName]:[message]
+func CreateError(functionMethodName, message string) error {
+	return fmt.Errorf("%s:%s", functionMethodName, message)
+}

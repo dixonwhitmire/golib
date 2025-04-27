@@ -11,14 +11,14 @@ import (
 	"os"
 )
 
-// FileContent is the type set used in ReadFileContents
+// FileContent is the type set used as a return type in ReadFileContents
 type FileContent interface {
 	~string | ~[]byte
 }
 
 // ReadFileContent returns the contents of a file as FileContent.
 func ReadFileContent[T FileContent](filePath string) (T, error) {
-	// zero is the zero value for our type constraint
+	// zero value for our type constraint
 	var zero T
 
 	fileBytes, err := os.ReadFile(filePath)
@@ -45,7 +45,7 @@ type CsvRecord struct {
 	Data       []string
 }
 
-// CsvRecordIterator returns a Seq2 iterator which includes the csvRecord and any errorlib encountered during the read operation.
+// CsvRecordIterator returns a Seq2 iterator which includes the CsvRecord and error (if applicable) encountered during the read operation.
 func CsvRecordIterator(csvFilePath string) (iter.Seq2[CsvRecord, error], error) {
 	csvFile, err := os.Open(csvFilePath)
 	if err != nil {
@@ -150,7 +150,8 @@ func parseCsvMetaData(csvFilePath string, hasHeader bool) ([]string, int, error)
 		break
 	}
 	if columnCount == 0 {
-		return headerRecord, columnCount, fmt.Errorf("parseCsvMetaData: invalid csv file:%s column count == 0", csvFilePath)
+		errorText := fmt.Sprintf("parseCsvMetaData: invalid csv file:%s column count == 0", csvFilePath)
+		return headerRecord, columnCount, errorlib.CreateError("parseCsvMetaData", errorText)
 	}
 	return headerRecord, columnCount, nil
 }
@@ -159,7 +160,7 @@ func parseCsvMetaData(csvFilePath string, hasHeader bool) ([]string, int, error)
 // The first file in inputFiles establishes the merge file's structure and header row if hasHeader is true
 func MergeCsvFiles(outputCsvPath string, hasHeader bool, inputCsvFiles ...string) error {
 	if inputCsvFiles == nil || len(inputCsvFiles) == 0 {
-		return errors.New("MergeCsvFiles:unable to merge csv: inputCsvFiles is nil or empty")
+		return errorlib.CreateError("MergeCsvFiles", "inputCsvFiles is required")
 	}
 
 	// grab the first file for the header (if any) and column count
@@ -206,8 +207,9 @@ func MergeCsvFiles(outputCsvPath string, hasHeader bool, inputCsvFiles ...string
 			// first line is used to compare column counts and if a header row, skip
 			if lineCounter == 1 {
 				if len(csvRecord.Data) != columnCount {
-					return fmt.Errorf("MergeCsvFiles: invalid csv column count. expected=%d, actual=%d file=%s",
+					errorText := fmt.Sprintf("invalid csv column count. expected=%d, actual=%d file=%s",
 						columnCount, len(csvRecord.Data), csvFilePath)
+					return errorlib.CreateError("MergeCsvFiles", errorText)
 				}
 				if hasHeader {
 					continue
