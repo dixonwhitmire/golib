@@ -24,7 +24,7 @@ type baseError struct {
 	lineNumber int
 	// operation specifies the process iteration, record parsing, etc. which received an error.
 	operation string
-	// cause is the underlying exception if applicable.
+	// cause is the underlying error if applicable.
 	cause error
 }
 
@@ -65,24 +65,24 @@ func NewIterationError(filePath string, lineNumber int, cause error) *IterationE
 	return &IterationError{baseError: &baseError{filePath: filePath, lineNumber: lineNumber, cause: cause}}
 }
 
-// ConversionError is returned when an error occurs converting the underlying CSV record from []string to type T.
-type ConversionError struct {
+// ParseError is returned when an error occurs parsing a raw []string record to type T.
+type ParseError struct {
 	*baseError
 }
 
-// Error returns context specific ConversionError information.
-func (ce *ConversionError) Error() string {
-	return ce.format("ConversionError")
+// Error returns context specific ParseError information.
+func (ce *ParseError) Error() string {
+	return ce.format("ParseError")
 }
 
 // Unwrap returns our inner error, aka "the cause".
-func (ce *ConversionError) Unwrap() error {
+func (ce *ParseError) Unwrap() error {
 	return ce.cause
 }
 
-// NewConversionError returns a ConversionError with the specified context information.
-func NewConversionError(filePath string, lineNumber int, cause error) *ConversionError {
-	return &ConversionError{baseError: &baseError{filePath: filePath, lineNumber: lineNumber, cause: cause}}
+// NewParseError returns a ParseError with the specified context information.
+func NewParseError(filePath string, lineNumber int, cause error) *ParseError {
+	return &ParseError{baseError: &baseError{filePath: filePath, lineNumber: lineNumber, cause: cause}}
 }
 
 // Record encapsulates a csv record including the record's line number and associated data.
@@ -91,13 +91,13 @@ type Record[T any] struct {
 	Data       T
 }
 
-// ConversionFunc is used to convert a CSV record []string to type T
-type ConversionFunc[T any] func([]string) (T, error)
+// ParseFunc is used to parse a CSV record []string into type T
+type ParseFunc[T any] func([]string) (T, error)
 
 // NewDefaultIterator returns an iterator with a DefaultBufferSize.
 func NewDefaultIterator[T any](inputFilePath string,
 	hasHeader bool,
-	conversionFunc ConversionFunc[T]) (iter.Seq2[Record[T], error], error) {
+	conversionFunc ParseFunc[T]) (iter.Seq2[Record[T], error], error) {
 	return iterator[T](inputFilePath, hasHeader, DefaultBufferSize, conversionFunc)
 }
 
@@ -106,18 +106,18 @@ func NewDefaultIterator[T any](inputFilePath string,
 func NewIterator[T any](inputFilePath string,
 	hasHeader bool,
 	bufferSize int,
-	conversionFunc ConversionFunc[T]) (iter.Seq2[Record[T], error], error) {
+	conversionFunc ParseFunc[T]) (iter.Seq2[Record[T], error], error) {
 	return iterator[T](inputFilePath, hasHeader, bufferSize, conversionFunc)
 }
 
 // iterator returns iter.Seq2[Record[T], error.
-// Data from the underlying CSV file is read using a buffered csv.Reader and is mapped to T using a ConversionFunc.
+// Data from the underlying CSV file is read using a buffered csv.Reader and is mapped to T using a ParseFunc.
 // Custom buffer sizes may be specified if customBufferSize is set to a value > DefaultBufferSize.
 func iterator[T any](
 	inputFilePath string,
 	hasHeader bool,
 	customBufferSize int,
-	conversionFunc ConversionFunc[T]) (iter.Seq2[Record[T], error], error) {
+	conversionFunc ParseFunc[T]) (iter.Seq2[Record[T], error], error) {
 
 	if conversionFunc == nil {
 		err := errorlib.CreateError("iterator", "conversionFunc is required")
@@ -163,7 +163,7 @@ func iterator[T any](
 			convertedData, err := conversionFunc(csvFields)
 			// record conversion error
 			if err != nil {
-				if !yield(Record[T]{LineNumber: lineNumber}, NewConversionError(inputFilePath, lineNumber, err)) {
+				if !yield(Record[T]{LineNumber: lineNumber}, NewParseError(inputFilePath, lineNumber, err)) {
 					return
 				}
 				continue
@@ -173,4 +173,71 @@ func iterator[T any](
 			}
 		}
 	}, nil
+}
+
+// ConvertFunc converts type T to a []string record for CSV writing output.
+type ConvertFunc[T any] func(T) ([]string, error)
+
+// Writer writes csv records to an output file.
+// convertFunc is used to convert type T to []string for CSV writer output.
+type Writer[T any] struct {
+	convertFunc  ConvertFunc[T]
+	outputFile   *os.File
+	outputWriter *csv.Writer
+}
+
+// Flush writes the current buffer to the output
+func (w *Writer[T]) Flush() {
+	w.outputWriter.Flush()
+}
+
+// Close flushes remaining data to the writer and closes related resources.
+func (w *Writer[T]) Close() error {
+	w.outputWriter.Flush()
+	err := w.outputWriter.Error()
+	if err != nil {
+		return errorlib.CreateError("Writer.Close", fmt.Sprintf("error flushing data %v", err))
+	}
+	err = w.outputFile.Close()
+	if err != nil {
+		return errorlib.CreateError("Writer.Close", fmt.Sprintf("error closing file %v", err))
+	}
+	return nil
+}
+
+// Write writes the csv record to the underlying output file.
+func (w *Writer[T]) Write(inputRecord T) error {
+	csvFields, err := w.convertFunc(inputRecord)
+	if err != nil {
+		return errorlib.CreateError("Writer.Write", fmt.Sprintf("error converting %v", err))
+	}
+
+	err = w.outputWriter.Write(csvFields)
+	if err != nil {
+		return errorlib.CreateError("Writer.Write", fmt.Sprintf("error writing data %v", err))
+	}
+	return nil
+}
+
+// WriteHeader writes a header to the output csv file.
+func (w *Writer[T]) WriteHeader(headerRecord []string) error {
+	err := w.outputWriter.Write(headerRecord)
+	if err != nil {
+		return errorlib.CreateError("Writer.WriteHeader", fmt.Sprintf("error writing header %v", err))
+	}
+	return nil
+}
+
+// NewDefaultWriter creates a new Writer which writes records of type T to an output CSV file.
+func NewDefaultWriter[T any](outputFilePath string, convertFunc ConvertFunc[T]) (Writer[T], error) {
+	if convertFunc == nil {
+		return Writer[T]{}, errorlib.CreateError("NewDefaultWriter", "conversionFunc is required")
+	}
+
+	outputFile, err := os.Create(outputFilePath)
+	if err != nil {
+		return Writer[T]{}, errorlib.CreateError("NewDefaultWriter", fmt.Sprintf("error creating output file %v", err))
+	}
+	writer := csv.NewWriter(bufio.NewWriterSize(outputFile, DefaultBufferSize))
+	return Writer[T]{convertFunc: convertFunc, outputFile: outputFile, outputWriter: writer}, nil
 }

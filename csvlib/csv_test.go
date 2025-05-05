@@ -2,7 +2,9 @@ package csvlib
 
 import (
 	"errors"
+	"github.com/dixonwhitmire/golib/iolib"
 	"github.com/google/go-cmp/cmp"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,16 +22,21 @@ type CustomRecord struct {
 	LastName  string
 }
 
-// customRecordConversionFunc is used to convert csv fields to a CustomRecord for test cases.
-func customRecordConversionFunc(csvFields []string) (CustomRecord, error) {
+// customRecordParseFunc is used to parse csv fields to a CustomRecord for csv reading/iterator test cases.
+func customRecordParseFunc(csvFields []string) (CustomRecord, error) {
 	customRecord := CustomRecord{
 		FirstName: csvFields[0],
 		LastName:  csvFields[1],
 	}
 	if strings.EqualFold(customRecord.LastName, "error") {
-		return customRecord, NewConversionError(sampleFileErrorPath, 2, errors.New("test case error"))
+		return customRecord, NewParseError(sampleFileErrorPath, 2, errors.New("test case error"))
 	}
 	return customRecord, nil
+}
+
+// customRecordConvertFunc is used to convert a type T to []string for csv writing.
+func customRecordConvertFunc(customRecord CustomRecord) ([]string, error) {
+	return []string{customRecord.FirstName, customRecord.LastName}, nil
 }
 
 // iteratorTestCase uses a type parameter to parameterize iterator test cases.
@@ -41,7 +48,7 @@ type iteratorTestCase[T any] map[string]struct {
 }
 
 // runIteratorTestCases executes the iteratorTestCase for the specified parameter type
-func runIteratorTestCases[T any](t *testing.T, conv ConversionFunc[T], cases iteratorTestCase[T]) {
+func runIteratorTestCases[T any](t *testing.T, conv ParseFunc[T], cases iteratorTestCase[T]) {
 	t.Helper()
 
 	for name, tt := range cases {
@@ -86,11 +93,11 @@ func TestIterator_StringSlice(t *testing.T) {
 		},
 	}
 
-	conversionFunc := func(records []string) ([]string, error) {
+	parseFunc := func(records []string) ([]string, error) {
 		return records, nil
 	}
 
-	runIteratorTestCases[[]string](t, conversionFunc, tt)
+	runIteratorTestCases[[]string](t, parseFunc, tt)
 }
 
 func TestIterator_CustomType(t *testing.T) {
@@ -138,11 +145,11 @@ func TestIterator_CustomType(t *testing.T) {
 			wantErr: false,
 		},
 	}
-	runIteratorTestCases[CustomRecord](t, customRecordConversionFunc, tt)
+	runIteratorTestCases[CustomRecord](t, customRecordParseFunc, tt)
 }
 
 func TestIterator_IterationError(t *testing.T) {
-	_, err := NewDefaultIterator[CustomRecord]("/tmp/not-a-real.csv", true, customRecordConversionFunc)
+	_, err := NewDefaultIterator[CustomRecord]("/tmp/not-a-real.csv", true, customRecordParseFunc)
 	if err == nil {
 		t.Fatal("NewDefaultIterator did not return an IterationError")
 	} else {
@@ -154,15 +161,50 @@ func TestIterator_IterationError(t *testing.T) {
 }
 
 func TestIterator_ConversionError(t *testing.T) {
-	iter, err := NewDefaultIterator[CustomRecord](sampleFileErrorPath, true, customRecordConversionFunc)
+	iter, err := NewDefaultIterator[CustomRecord](sampleFileErrorPath, true, customRecordParseFunc)
 	if err != nil {
 		t.Fatalf("NewDefaultIterator unexpected error %v", err)
 	}
 
-	var ce *ConversionError
+	var pe *ParseError
 	for _, err := range iter {
-		if !errors.As(err, &ce) {
-			t.Errorf("NewDefaultIterator did not return an ConversionError got %v", err)
+		if !errors.As(err, &pe) {
+			t.Errorf("NewDefaultIterator did not return an ParseError got %v", err)
 		}
+	}
+}
+
+func TestWriter(t *testing.T) {
+	expectedContents := "first_name,last_name\nJohn,Doe\n"
+
+	outputFilePath := filepath.Join(t.TempDir(), "test-writer.csv")
+	var convertFunc = ConvertFunc[CustomRecord](customRecordConvertFunc)
+
+	w, err := NewDefaultWriter[CustomRecord](outputFilePath, convertFunc)
+	if err != nil {
+		t.Fatalf("NewDefaultWriter unexpected error %v", err)
+	}
+	defer w.Close()
+
+	err = w.WriteHeader([]string{"first_name", "last_name"})
+	if err != nil {
+		t.Fatalf("WriteHeader unexpected error %v", err)
+	}
+	err = w.Write(CustomRecord{
+		FirstName: "John",
+		LastName:  "Doe",
+	})
+	if err != nil {
+		t.Fatalf("Write unexpected error %v", err)
+	}
+	w.Flush()
+
+	actualOutput, err := iolib.ReadFileContent[string](outputFilePath)
+	if err != nil {
+		t.Fatalf("ReadFileContent unexpected error %v", err)
+	}
+
+	if diff := cmp.Diff(expectedContents, actualOutput); diff != "" {
+		t.Errorf("Writer did not write expected contents (-want +got):\n%s", diff)
 	}
 }
