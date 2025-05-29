@@ -16,8 +16,15 @@ const (
 )
 
 // SetDefaultLogger configures the default loglib for the application.
+// The default logger logs INFO events and higher.
 func SetDefaultLogger() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+}
+
+// ConfigureLogger configures the default logger given the provided handlerOptions.
+func ConfigureLogger(handlerOptions *slog.HandlerOptions) {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, handlerOptions))
 	slog.SetDefault(logger)
 }
 
