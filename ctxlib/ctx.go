@@ -8,13 +8,22 @@ import (
 	"syscall"
 )
 
-// SignalContext returns a context which responds to a SIGTERM signal.
-func SignalContext() context.Context {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+// NewSignalContext returns a new context that is cancelled when one of the specified signals is received.
+// If no signals are provided, it defaults to listening for os.Interrupt and syscall.SIGTERM.
+func NewSignalContext(parent context.Context, signals ...os.Signal) context.Context {
+	if len(signals) == 0 {
+		signals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+	}
+
+	ctx, stop := signal.NotifyContext(parent, signals...)
+
+	slog.Info("signal registration complete", "signals", signals)
+
 	go func() {
 		<-ctx.Done()
-		slog.Info("received shutdown signal . . . stopping application")
+		slog.Info("received shutdown signal. stopping application.")
 		stop()
 	}()
+
 	return ctx
 }

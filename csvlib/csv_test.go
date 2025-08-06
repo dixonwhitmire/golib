@@ -199,7 +199,7 @@ func TestWriter(t *testing.T) {
 	}
 	w.Flush()
 
-	actualOutput, err := iolib.ReadFileContent[string](outputFilePath)
+	actualOutput, err := iolib.ReadFileAsString(outputFilePath)
 	if err != nil {
 		t.Fatalf("ReadFileContent unexpected error %v", err)
 	}

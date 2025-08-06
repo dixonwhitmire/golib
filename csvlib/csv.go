@@ -4,8 +4,8 @@ package csvlib
 import (
 	"bufio"
 	"encoding/csv"
+	"errors"
 	"fmt"
-	"github.com/dixonwhitmire/golib/errorlib"
 	"io"
 	"iter"
 	"os"
@@ -24,7 +24,7 @@ type baseError struct {
 	lineNumber int
 	// operation specifies the process iteration, record parsing, etc. which received an error.
 	operation string
-	// cause is the underlying error if applicable.
+	// cause is the underlying error if available.
 	cause error
 }
 
@@ -110,7 +110,7 @@ func NewIterator[T any](inputFilePath string,
 	return iterator[T](inputFilePath, hasHeader, bufferSize, conversionFunc)
 }
 
-// iterator returns iter.Seq2[Record[T], error.
+// iterator returns iter.Seq2[Record[T], error].
 // Data from the underlying CSV file is read using a buffered csv.Reader and is mapped to T using a ParseFunc.
 // Custom buffer sizes may be specified if customBufferSize is set to a value > DefaultBufferSize.
 func iterator[T any](
@@ -120,7 +120,7 @@ func iterator[T any](
 	conversionFunc ParseFunc[T]) (iter.Seq2[Record[T], error], error) {
 
 	if conversionFunc == nil {
-		err := errorlib.CreateError("iterator", "conversionFunc is required")
+		err := errors.New("iterator: conversionFunc is required")
 		return nil, NewIterationError(inputFilePath, 0, err)
 	}
 
@@ -196,11 +196,11 @@ func (w *Writer[T]) Close() error {
 	w.outputWriter.Flush()
 	err := w.outputWriter.Error()
 	if err != nil {
-		return errorlib.CreateError("Writer.Close", fmt.Sprintf("error flushing data %v", err))
+		return fmt.Errorf("Writer.Close: error flushing data %w", err)
 	}
 	err = w.outputFile.Close()
 	if err != nil {
-		return errorlib.CreateError("Writer.Close", fmt.Sprintf("error closing file %v", err))
+		return fmt.Errorf("Writer.Close: error closing file %w", err)
 	}
 	return nil
 }
@@ -209,12 +209,12 @@ func (w *Writer[T]) Close() error {
 func (w *Writer[T]) Write(inputRecord T) error {
 	csvFields, err := w.convertFunc(inputRecord)
 	if err != nil {
-		return errorlib.CreateError("Writer.Write", fmt.Sprintf("error converting %v", err))
+		return fmt.Errorf("Writer.Write: error converting %w", err)
 	}
 
 	err = w.outputWriter.Write(csvFields)
 	if err != nil {
-		return errorlib.CreateError("Writer.Write", fmt.Sprintf("error writing data %v", err))
+		return fmt.Errorf("Writer.Write: error writing data %w", err)
 	}
 	return nil
 }
@@ -223,7 +223,7 @@ func (w *Writer[T]) Write(inputRecord T) error {
 func (w *Writer[T]) WriteHeader(headerRecord []string) error {
 	err := w.outputWriter.Write(headerRecord)
 	if err != nil {
-		return errorlib.CreateError("Writer.WriteHeader", fmt.Sprintf("error writing header %v", err))
+		return fmt.Errorf("Writer.WriteHeade: error writing header %w", err)
 	}
 	return nil
 }
@@ -231,12 +231,12 @@ func (w *Writer[T]) WriteHeader(headerRecord []string) error {
 // NewDefaultWriter creates a new Writer which writes records of type T to an output CSV file.
 func NewDefaultWriter[T any](outputFilePath string, convertFunc ConvertFunc[T]) (Writer[T], error) {
 	if convertFunc == nil {
-		return Writer[T]{}, errorlib.CreateError("NewDefaultWriter", "conversionFunc is required")
+		return Writer[T]{}, errors.New("NewDefaultWriter: conversionFunc is required")
 	}
 
 	outputFile, err := os.Create(outputFilePath)
 	if err != nil {
-		return Writer[T]{}, errorlib.CreateError("NewDefaultWriter", fmt.Sprintf("error creating output file %v", err))
+		return Writer[T]{}, fmt.Errorf("NewDefaultWriter: error creating output file %w", err)
 	}
 	writer := csv.NewWriter(bufio.NewWriterSize(outputFile, DefaultBufferSize))
 	return Writer[T]{convertFunc: convertFunc, outputFile: outputFile, outputWriter: writer}, nil
