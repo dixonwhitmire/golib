@@ -1,6 +1,7 @@
 package loglib
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 )
@@ -12,7 +13,7 @@ func TestSetDefault(t *testing.T) {
 
 func TestLogElapsedTime(t *testing.T) {
 	startTime := time.Now()
-	defer LogElapsedTime("TestLogElapsedTime", startTime)
+	defer LogElapsedTime(slog.LevelInfo, "TestLogElapsedTime", startTime)
 	func() {
 		for i := 0; i < 10_000; i++ {
 			i *= i
