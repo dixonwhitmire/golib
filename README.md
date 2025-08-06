@@ -8,5 +8,5 @@ In the near-term changes will likely be breaking until 1.0.0 is released.
 
 ## install
 ```shell
-go get github.com/dixonwhitmire/golib@v0.6.0
+go get github.com/dixonwhitmire/golib@v0.8.0
 ```
