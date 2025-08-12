@@ -2,12 +2,13 @@ package csvlib
 
 import (
 	"errors"
-	"github.com/dixonwhitmire/golib/iolib"
-	"github.com/google/go-cmp/cmp"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dixonwhitmire/golib/iolib"
+	"github.com/google/go-cmp/cmp"
 )
 
 // sampleCsv is a helper function which returns the sample CSV payload used in unit tests.
@@ -187,9 +188,9 @@ func TestWriter(t *testing.T) {
 	outputFile, err := os.Create(outputFilePath)
 	var convertFunc = ConvertFunc[CustomRecord](customRecordConvertFunc)
 
-	w, err := NewDefaultWriter[CustomRecord](outputFile, convertFunc)
+	w, err := NewWriter[CustomRecord](outputFile, convertFunc)
 	if err != nil {
-		t.Fatalf("NewDefaultWriter unexpected error %v", err)
+		t.Fatalf("NewIoWriter unexpected error %v", err)
 	}
 	defer w.Close()
 

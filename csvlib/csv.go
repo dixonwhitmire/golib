@@ -117,7 +117,7 @@ func iterator[T any](
 	conversionFunc ParseFunc[T]) (iter.Seq2[Record[T], error], error) {
 
 	if conversionFunc == nil {
-		err := errors.New("iterator: conversionFunc is required")
+		err := errors.New("iterator: csvToExampleRecord is required")
 		return nil, NewIterationError(0, err)
 	}
 
@@ -191,7 +191,7 @@ func (w *Writer[T]) Close() error {
 	return nil
 }
 
-// Write writes the csv record to the underlying output file.
+// Write writes the csv record to the output.
 func (w *Writer[T]) Write(inputRecord T) error {
 	csvFields, err := w.convertFunc(inputRecord)
 	if err != nil {
@@ -214,10 +214,10 @@ func (w *Writer[T]) WriteHeader(headerRecord []string) error {
 	return nil
 }
 
-// NewDefaultWriter creates a new Writer which writes records of type T to an output CSV file.
-func NewDefaultWriter[T any](output io.Writer, convertFunc ConvertFunc[T]) (Writer[T], error) {
+// NewWriter creates a new Writer which writes records of type T to an output target.
+func NewWriter[T any](output io.Writer, convertFunc ConvertFunc[T]) (Writer[T], error) {
 	if convertFunc == nil {
-		return Writer[T]{}, errors.New("NewDefaultWriter: conversionFunc is required")
+		return Writer[T]{}, errors.New("NewWriter: convertFunc is required")
 	}
 
 	writer := csv.NewWriter(bufio.NewWriterSize(output, DefaultBufferSize))
