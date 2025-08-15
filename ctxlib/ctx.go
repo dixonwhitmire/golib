@@ -1,3 +1,4 @@
+// Package ctxlib provides pre-configured contexts for use in applications.
 package ctxlib
 
 import (

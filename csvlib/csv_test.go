@@ -2,18 +2,26 @@ package csvlib
 
 import (
 	"errors"
-	"github.com/dixonwhitmire/golib/iolib"
-	"github.com/google/go-cmp/cmp"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dixonwhitmire/golib/iolib"
+	"github.com/google/go-cmp/cmp"
 )
 
-const (
-	sampleFilePath         = "./testdata/sample.csv"
-	sampleFileNoHeaderPath = "./testdata/sample-no-header.csv"
-	sampleFileErrorPath    = "./testdata/sample-conversion-error.csv"
-)
+// sampleCsv is a helper function which returns the sample CSV payload used in unit tests.
+func sampleCsv(t *testing.T, includeHeader bool) string {
+	t.Helper()
+	var csvData string
+	if includeHeader {
+		csvData = `"first_name","last_name"` + "\n"
+	}
+	csvData += `"John","Doe"` + "\n"
+	csvData += `"Jane","Doe"`
+	return csvData
+}
 
 // CustomRecord is used in test cases as a "concrete" value for our generic type parameter.
 // CustomRecord is an "exported type" so that we can use the cmp.Diff tooling without additional options.
@@ -29,7 +37,7 @@ func customRecordParseFunc(csvFields []string) (CustomRecord, error) {
 		LastName:  csvFields[1],
 	}
 	if strings.EqualFold(customRecord.LastName, "error") {
-		return customRecord, NewParseError(sampleFileErrorPath, 2, errors.New("test case error"))
+		return customRecord, NewParseError(2, errors.New("test case error"))
 	}
 	return customRecord, nil
 }
@@ -41,7 +49,6 @@ func customRecordConvertFunc(customRecord CustomRecord) ([]string, error) {
 
 // iteratorTestCase uses a type parameter to parameterize iterator test cases.
 type iteratorTestCase[T any] map[string]struct {
-	csvPath   string
 	hasHeader bool
 	want      []Record[T]
 	wantErr   bool
@@ -53,19 +60,22 @@ func runIteratorTestCases[T any](t *testing.T, conv ParseFunc[T], cases iterator
 
 	for name, tt := range cases {
 		t.Run(name, func(subT *testing.T) {
-			got := make([]Record[T], 0)
-			iter, err := NewDefaultIterator[T](tt.csvPath, tt.hasHeader, conv)
+			input := strings.NewReader(sampleCsv(t, tt.hasHeader))
+
+			got := make([]Record[T], 0, 2)
+
+			iter, err := NewDefaultIterator[T](input, tt.hasHeader, conv)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("iterator error = %v, wantErr %v", err, tt.wantErr)
 			}
 			for rec, err := range iter {
 				if err != nil {
-					t.Errorf("iterator error = %v", err)
+					subT.Errorf("iterator error = %v", err)
 				}
 				got = append(got, rec)
 			}
 			if diff := cmp.Diff(got, tt.want); diff != "" {
-				t.Errorf("iterator found diff (-want +got):\n%s", diff)
+				subT.Errorf("iterator found diff (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -74,7 +84,6 @@ func runIteratorTestCases[T any](t *testing.T, conv ParseFunc[T], cases iterator
 func TestIterator_StringSlice(t *testing.T) {
 	tt := iteratorTestCase[[]string]{
 		"has-header": {
-			csvPath:   sampleFilePath,
 			hasHeader: true,
 			want: []Record[[]string]{
 				{LineNumber: 2, Data: []string{"John", "Doe"}},
@@ -83,11 +92,10 @@ func TestIterator_StringSlice(t *testing.T) {
 			wantErr: false,
 		},
 		"has-no-header": {
-			csvPath:   sampleFileNoHeaderPath,
 			hasHeader: false,
 			want: []Record[[]string]{
-				{LineNumber: 1, Data: []string{"Steve", "Doe"}},
-				{LineNumber: 2, Data: []string{"Sally", "Doe"}},
+				{LineNumber: 1, Data: []string{"John", "Doe"}},
+				{LineNumber: 2, Data: []string{"Jane", "Doe"}},
 			},
 			wantErr: false,
 		},
@@ -103,7 +111,6 @@ func TestIterator_StringSlice(t *testing.T) {
 func TestIterator_CustomType(t *testing.T) {
 	tt := iteratorTestCase[CustomRecord]{
 		"has-header": {
-			csvPath:   sampleFilePath,
 			hasHeader: true,
 			want: []Record[CustomRecord]{
 				{
@@ -124,20 +131,19 @@ func TestIterator_CustomType(t *testing.T) {
 			wantErr: false,
 		},
 		"has-no-header": {
-			csvPath:   sampleFileNoHeaderPath,
 			hasHeader: false,
 			want: []Record[CustomRecord]{
 				{
 					LineNumber: 1,
 					Data: CustomRecord{
-						FirstName: "Steve",
+						FirstName: "John",
 						LastName:  "Doe",
 					},
 				},
 				{
 					LineNumber: 2,
 					Data: CustomRecord{
-						FirstName: "Sally",
+						FirstName: "Jane",
 						LastName:  "Doe",
 					},
 				},
@@ -148,41 +154,43 @@ func TestIterator_CustomType(t *testing.T) {
 	runIteratorTestCases[CustomRecord](t, customRecordParseFunc, tt)
 }
 
-func TestIterator_IterationError(t *testing.T) {
-	_, err := NewDefaultIterator[CustomRecord]("/tmp/not-a-real.csv", true, customRecordParseFunc)
-	if err == nil {
-		t.Fatal("NewDefaultIterator did not return an IterationError")
-	} else {
-		var ie *IterationError
-		if !errors.As(err, &ie) {
-			t.Errorf("NewDefaultIterator did not return an IterationError got %v", err)
-		}
-	}
-}
-
 func TestIterator_ConversionError(t *testing.T) {
-	iter, err := NewDefaultIterator[CustomRecord](sampleFileErrorPath, true, customRecordParseFunc)
+	// Our test conversion func raises an error if the string "error" is in the "last name" field.
+	sampleCsvData := strings.Replace(sampleCsv(t, true), "Doe", "error", 1)
+	input := strings.NewReader(sampleCsvData)
+
+	iter, err := NewDefaultIterator[CustomRecord](input, true, customRecordParseFunc)
 	if err != nil {
 		t.Fatalf("NewDefaultIterator unexpected error %v", err)
 	}
 
 	var pe *ParseError
+	foundErr := false
 	for _, err := range iter {
-		if !errors.As(err, &pe) {
-			t.Errorf("NewDefaultIterator did not return an ParseError got %v", err)
+		if err != nil {
+			if errors.As(err, &pe) {
+				foundErr = true
+			} else {
+				t.Errorf("NewDefaultIterator did not return a ParseError got %v", err)
+			}
 		}
+	}
+
+	if !foundErr {
+		t.Fatal("Expected a ParseError but did not receive one")
 	}
 }
 
 func TestWriter(t *testing.T) {
 	expectedContents := "first_name,last_name\nJohn,Doe\n"
-
 	outputFilePath := filepath.Join(t.TempDir(), "test-writer.csv")
+
+	outputFile, err := os.Create(outputFilePath)
 	var convertFunc = ConvertFunc[CustomRecord](customRecordConvertFunc)
 
-	w, err := NewDefaultWriter[CustomRecord](outputFilePath, convertFunc)
+	w, err := NewWriter[CustomRecord](outputFile, convertFunc)
 	if err != nil {
-		t.Fatalf("NewDefaultWriter unexpected error %v", err)
+		t.Fatalf("NewIoWriter unexpected error %v", err)
 	}
 	defer w.Close()
 
