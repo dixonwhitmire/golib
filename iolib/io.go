@@ -1,4 +1,4 @@
-// Package iolib provides iterators for reading text based file data.
+// Package iolib provides access to text file contents in memory or via iterators.
 package iolib
 
 import (

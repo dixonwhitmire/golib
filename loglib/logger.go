@@ -1,3 +1,4 @@
+// Package loglib provides standard logger configurations.
 package loglib
 
 import (

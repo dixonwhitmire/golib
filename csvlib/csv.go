@@ -1,4 +1,4 @@
-// Package csvlib provides supports reading from and writing to CSV files using iterators and structs.
+// Package csvlib provides readers (iterators) and writers for CSV files.
 package csvlib
 
 import (
